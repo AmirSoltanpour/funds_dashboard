@@ -36,7 +36,7 @@ app.layout = html.Div(style={'padding': '20px', 'font-family': 'IranSans', 'dire
     ], style={'margin-bottom': '10px'}),
     
     html.Div([
-        html.Label("افق (بر حسب سال):"),
+        html.Label("افق زمانی (بر حسب سال):"),
         dcc.Slider(
             id='horizon-slider',
             min=0,
