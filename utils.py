@@ -1,14 +1,3 @@
-# import pandas as pd
-# import jdatetime, requests
-# import json, pytz
-# import numpy as np
-# from aautils.functions import *
-# from aautils.classes import *
-# from aautils.ewi_functions import *
-# import warnings
-# import finpy_tse
-# import psycopg2
-
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -327,3 +316,78 @@ SELECT a.NameFa,
   on a.RegNum = b.RegNum
   where a.InstituteTypeId = 6
 '''
+
+
+#######################################################################################################
+
+def fetch_fund_names():
+
+    query = '''
+    SELECT [RegNum]
+        ,[NameFa]
+    FROM [General].[dbo].[Funds_Dim_Info]
+    where InstituteTypeId = 6
+    '''
+
+    df = read_from_db(query)
+    return df
+
+def simulator3(df, asset_weights, start_date, end_date, increase_rate, initial_investment):
+    print('initial:', initial_investment)
+    print('asset_weights:', asset_weights)
+    df = df.pivot(index='Date', columns='RegNum', values='Return')
+    df.columns = [str(item) for item in df.columns]
+    df.reset_index(drop = False, inplace = True)
+    df['jalali'] = df['Date'].astype(str).apply(greg_to_jalali)
+
+    df = df[df.jalali >= start_date]
+    df = df[df.jalali <= end_date]
+
+    for regnum in list(asset_weights.keys()):
+        df[str(regnum) + 'value'] = None
+    df['inflow'] = 0
+    df.reset_index(drop = True, inplace = True)
+
+    for regnum in list(asset_weights.keys()):
+        df.loc[0, str(regnum) + 'value'] = initial_investment * asset_weights[regnum]/100
+
+
+    last_inflow_date = start_date
+    last_inflow = initial_investment
+
+    for i in range(1, df.shape[0]):
+
+        for regnum in list(asset_weights.keys()):
+            df.loc[i, str(regnum) + 'value'] = df.loc[i-1, str(regnum) + 'value'] * df.loc[i, str(regnum)]
+
+        if df.loc[i, 'jalali'].endswith('-01'):
+
+            if df.loc[i, 'jalali'][:4] != last_inflow_date[:4]:
+                last_inflow = last_inflow * (1 + increase_rate)
+
+            df.loc[i, 'inflow'] = last_inflow
+            
+            for regnum in list(asset_weights.keys()):
+                df.loc[i, str(regnum) + 'value'] = df.loc[i, str(regnum) + 'value'] + last_inflow * asset_weights[regnum]/100
+
+            last_inflow_date = df.loc[i, 'jalali']
+
+    df['portfolio'] = 0
+    for regnum in list(asset_weights.keys()):
+        df['portfolio'] += df[str(regnum) + 'value']
+
+    df['return'] = 1
+    for i in range(1, df.shape[0]):
+        df.loc[i, 'return'] = (df.loc[i, 'portfolio'] - df.loc[i, 'inflow']) / df.loc[i-1, 'portfolio']
+    df['cumulative'] = df['return'].cumprod() - 1
+
+    df['cumulative+1'] = df['return'].cumprod()
+
+    # Calculate return and risk metrics using defined funcitons
+    cumulative_return = df['return'].prod() - 1
+    cagr = (df['return'].prod()) ** (1 / (df.shape[0] / 365)) - 1
+    max_dd = max_drawdown(df, 'cumulative+1')
+    # sharpe = sharpe_ratio(df, 'return', 'hami')
+    var = calculate_n_day_return_and_var(df, n = 10, confidence_level = 0.95)
+    
+    return [df, cumulative_return, cagr, max_dd, var]
